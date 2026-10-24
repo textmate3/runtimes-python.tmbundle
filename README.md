@@ -15,7 +15,7 @@ The protocol the resolver answers in is described in the [Runtimes](https://gith
 
   Every lookup passes `--managed-python`, so only uv's own installs can ever be answered with. This is the other genuine difference between the two languages: rv does not know the system Ruby, so the Ruby resolver could not reach it by accident, while uv finds `/usr/bin/python3` and Xcode's copy readily. The system Python has to be excluded on purpose, here and again in the application.
 
-A person's own `uv` is preferred over this one, so a Python TextMate installs shows up in their own list.
+A person's own `uv` is preferred over this one, so a Python TextMate installs shows up in their own list. When theirs cannot install the version asked for, which happens when it predates that Python, since uv carries its list of Pythons inside the binary, this bundle's copy installs it instead, into the same place, where theirs finds it from then on.
 
 ## Tests
 

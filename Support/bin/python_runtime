@@ -70,6 +70,21 @@ if "$uv" python install "$version" >/dev/null 2>&1 && interpreter="$(find_python
 	exit 0
 fi
 
+# The person's uv could not install it. Their uv may simply be older than the
+# version asked for, since uv carries its list of Pythons inside the binary,
+# while the bundle's copy is as new as the version the application pins. So
+# the bundle's uv tries next, and what it installs lands in the same place,
+# where the person's uv will find it from now on. RUNTIMES_BUNDLE_UV names
+# the bundle's copy outright, which is how the tests hand in a stand-in.
+bundle_uv="${RUNTIMES_BUNDLE_UV:-$here/uv}"
+if [[ -x "$bundle_uv" && "$bundle_uv" != "$uv" ]]; then
+	if "$bundle_uv" python install "$version" >/dev/null 2>&1 && interpreter="$("$bundle_uv" python find --managed-python "$version" 2>/dev/null)" && [[ -n "$interpreter" ]]; then
+		echo "installed $version $interpreter"
+		echo "python $interpreter"
+		exit 0
+	fi
+fi
+
 # The install could not happen, offline most likely. The newest managed
 # Python of any version stands in, and says so. Asking uv for "3" answers
 # the newest 3.x it manages.
