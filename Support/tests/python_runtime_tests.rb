@@ -10,17 +10,30 @@ require "tmpdir"
 BIN     = File.expand_path("../bin", __dir__)
 STUB_UV = File.expand_path("fixtures/uv", __dir__)
 
-def run(*arguments, installed: [], offline: false, unmanaged: false)
+def run(*arguments, installed: [], offline: false, unmanaged: false, bundle_uv: "/nonexistent/uv")
   state = Tempfile.new("uv-state")
   state.write(installed.join("\n") + "\n")
   state.close
-  environment = { "RUNTIMES_UV" => STUB_UV, "UV_STUB_STATE" => state.path, "HOME" => Dir.tmpdir }
+  environment = { "RUNTIMES_UV" => STUB_UV, "RUNTIMES_BUNDLE_UV" => bundle_uv, "UV_STUB_STATE" => state.path, "HOME" => Dir.tmpdir }
   environment["UV_STUB_OFFLINE"] = "1" if offline
   environment["UV_STUB_UNMANAGED"] = "1" if unmanaged
   output, status = Open3.capture2(environment, File.join(BIN, "python_runtime"), *arguments)
   [output.lines.map(&:strip), status.exitstatus, File.read(state.path).split("\n")]
 ensure
   state&.unlink
+end
+
+# A second stand-in uv that can install when the first cannot: the same stub
+# with the offline switch taken off, the way the bundle's newer uv knows a
+# Python the person's older one does not.
+def with_online_bundle_uv
+  wrapper = Tempfile.new(["bundle-uv", ".sh"])
+  wrapper.write("#!/bin/bash\nunset UV_STUB_OFFLINE\nexec #{STUB_UV} \"$@\"\n")
+  wrapper.close
+  File.chmod(0o755, wrapper.path)
+  yield wrapper.path
+ensure
+  wrapper&.unlink
 end
 
 $failures = 0
@@ -53,6 +66,21 @@ check "with no network the newest managed Python stands in and says why" do
   lines.size == 1 && status == 0 &&
     lines.first.start_with?("fallback /stub/pythons/cpython-3.12.8-macos-aarch64-none/bin/python3 ") &&
     lines.first.include?("could not be installed")
+end
+
+check "when the person's uv cannot install, the bundle's uv is tried and its install answered" do
+  with_online_bundle_uv do |bundle_uv|
+    lines, status, installed = run("3.13", installed: %w[3.12.8], offline: true, bundle_uv: bundle_uv)
+    lines == [
+      "installed 3.13 /stub/pythons/cpython-3.13.15-macos-aarch64-none/bin/python3",
+      "python /stub/pythons/cpython-3.13.15-macos-aarch64-none/bin/python3",
+    ] && status == 0 && installed == %w[3.12.8 3.13.15]
+  end
+end
+
+check "the bundle's uv is not tried when it is the one that already failed" do
+  lines, status, = run("3.13", installed: %w[3.12.8], offline: true, bundle_uv: STUB_UV)
+  lines.size == 1 && status == 0 && lines.first.start_with?("fallback ")
 end
 
 check "with no network and nothing managed it is an error rather than a guess" do
